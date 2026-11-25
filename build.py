@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 SRC = ROOT / 'src'
 DIST = ROOT / 'dist'
-VERSION = '2.1.0'
+VERSION = '2.7.0'
 
 HOSTS = [
     'https://www.wiki-masters.com/*',
@@ -29,7 +29,8 @@ base = {
     'version': VERSION,
     'description': "Ajoute des images aux cartes WikiMasters qui n'en ont pas (visible uniquement par toi).",
     'icons': {'16': 'icon16.png', '48': 'icon48.png', '128': 'icon128.png'},
-    'permissions': ['storage'],
+    # unlimitedStorage : pas de plafond de 10 Mo (grosses collections de 30 000 cartes)
+    'permissions': ['storage', 'unlimitedStorage'],
     'host_permissions': HOSTS,
     'options_ui': {'page': 'options.html', 'open_in_tab': True},
     'action': {'default_title': 'WikiMasters Images — réglages'},

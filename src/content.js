@@ -71,9 +71,20 @@
   //  'improve' = + les images de mauvaise qualité et les films/séries sans affiche (par défaut)
   //  'all'     = toutes les cartes dès qu'une autre image est trouvée
   let mode = 'improve';
-  const modeReady = ext.storage.local.get('mode').then((r) => { if (r.mode) mode = r.mode; });
-  ext.storage.onChanged.addListener((ch) => {
+  // raretés que l'extension ne modifie PAS automatiquement (tes choix faits à la main restent appliqués)
+  const RARITIES = [['C', 'Commune'], ['PC', 'Peu commune'], ['R', 'Rare'], ['SR', 'Super rare'], ['UR', 'Ultra rare'], ['L', 'Légendaire']];
+  let offRarities = new Set();
+  let syncInfo = null;
+  const modeReady = ext.storage.local.get(['mode', 'offRarities', 'wmi-sync-info']).then((r) => {
+    if (r.mode) mode = r.mode;
+    offRarities = new Set(r.offRarities || []);
+    syncInfo = r['wmi-sync-info'] || null;
+  });
+  ext.storage.onChanged.addListener((ch, area) => {
+    if (area && area !== 'local') return;
     if (ch.mode && ch.mode.newValue && ch.mode.newValue !== mode) location.reload();
+    if (ch.offRarities && JSON.stringify(ch.offRarities.newValue || []) !== JSON.stringify([...offRarities])) location.reload();
+    if (ch['wmi-sync-info']) { syncInfo = ch['wmi-sync-info'].newValue || null; refreshPanel(); }
   });
 
   // ---------- affichage sur les cartes ----------
@@ -88,10 +99,39 @@
   }
   const inGrid = (card) => card && card.classList.contains('group');
   function titleOf(card) { const h = card && card.querySelector('h3'); return h ? h.textContent.trim() : null; }
+  // rareté de la carte : l'étiquette en haut à gauche (C, PC, R, SR, UR, L)
+  function rarityOf(card) {
+    if (!card) return null;
+    for (const el of card.querySelectorAll('div, span')) {
+      if (el.childElementCount) continue;
+      const t = el.textContent.trim();
+      if (/^(C|PC|R|SR|UR|L)$/.test(t) && /top-2/.test(el.className) && /left-2/.test(el.className)) return t;
+    }
+    // secours : le fond de rareté
+    const bg = card.querySelector('img[src*="/rarity/"]');
+    const f = bg ? (bg.getAttribute('src') || '') : '';
+    if (/legend/i.test(f)) return 'L';
+    if (/ultra/i.test(f)) return 'UR';
+    if (/super/i.test(f)) return 'SR';
+    if (/peu/i.test(f)) return 'PC';
+    if (/rare/i.test(f)) return 'R';
+    if (/commun/i.test(f)) return 'C';
+    return null;
+  }
   function descOf(card) { const h = card && card.querySelector('h3'); const d = h && h.nextElementSibling; return d ? d.textContent.trim() : ''; }
   // l'image principale de la carte (pas le fond de rareté)
+  // On cherche l'image dans l'encadré du haut de la carte. Certaines cartes ont des images en plus
+  // (fond de rareté, cadre décoratif…) : on ne doit pas les confondre avec la photo.
   function mainImg(card) {
-    return card && [...card.querySelectorAll('img')].find((i) => !(i.getAttribute('src') || '').includes('/rarity/') && !i.closest('.wmi-badge'));
+    if (!card) return null;
+    const imgs = [...card.querySelectorAll('img')].filter((i) => !i.closest('.wmi-badge') && !(i.getAttribute('src') || '').includes('/rarity/'));
+    const title = titleOf(card);
+    return imgs.find((i) => i.classList.contains('wmi-img'))
+      || imgs.find((i) => (i.getAttribute('src') || '').includes(PLACEHOLDER))
+      || imgs.find((i) => title && i.alt === title)
+      || imgs.find((i) => /h-\[45%\]/.test((i.closest('[class*="h-[45%]"]') || {}).className || ''))
+      || imgs[0]
+      || null;
   }
   const isEmpty = (img) => (img.getAttribute('src') || '').includes(PLACEHOLDER) || (img.dataset.wmiOrig || '').includes(PLACEHOLDER);
   const isMediaDesc = (d) => /\b(film|série|serie|feuilleton|téléfilm|telefilm|franchise|saga|anime|émission)/i.test(d);
@@ -130,22 +170,70 @@
 
   function cardTitleOfImg(img) { return titleOf(cardOf(img)); }
 
+  // petit message en bas de l'écran
+  function toast(text) {
+    const t = document.createElement('div');
+    t.className = 'wmi-toast';
+    t.textContent = text;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 7000);
+  }
+
+  // ---------- copie en mémoire des choix faits à la main (lecture instantanée) ----------
+  // (chargées une seule fois à l'ouverture de la page, puis tenues à jour : pas de relecture complète,
+  //  même avec une collection de 30 000 cartes)
+  const manualChoices = new Map();
+  const reapplied = new Map();
+  const shownAll = new Map();          // toutes les cartes modifiées (toutes pages) : titre → image
+  ext.storage.onChanged.addListener((ch, area) => {
+    if (area && area !== 'local') return;
+    for (const k of Object.keys(ch)) {
+      const nv = ch[k].newValue;
+      if (k.startsWith(CHOICE_PREFIX)) {
+        const t = k.slice(CHOICE_PREFIX.length);
+        if (nv === undefined) manualChoices.delete(t); else manualChoices.set(t, nv);
+      } else if (k.startsWith(SHOWN_PREFIX)) {
+        const t = k.slice(SHOWN_PREFIX.length);
+        if (nv === undefined) shownAll.delete(t); else shownAll.set(t, nv.url);
+      } else if (k.startsWith(FRAME_PREFIX)) {
+        const t = k.slice(FRAME_PREFIX.length);
+        if (nv === undefined) frames.delete(t); else frames.set(t, nv);
+      }
+    }
+  });
+
   // ---------- cadrage (recadrage) choisi par carte ----------
   const FRAME_PREFIX = 'wmi-frame:';
-  const DEFAULT_FRAME = { x: 50, y: 25, z: 1 };
+  // cadrage + retouches : position (x, y), zoom (z), luminosité (b), contraste (c), saturation (s),
+  // noir et blanc (g), sépia (sp), miroir (m), vignette (v)
+  const DEFAULT_LOOK = { b: 100, c: 100, s: 100, g: 0, sp: 0, m: 0, v: 0 };
+  const DEFAULT_FRAME = { x: 50, y: 25, z: 1, ...DEFAULT_LOOK };
   const frames = new Map();
-  ext.storage.local.get(null).then((all) => {
-    for (const k of Object.keys(all)) if (k.startsWith(FRAME_PREFIX)) frames.set(k.slice(FRAME_PREFIX.length), all[k]);
+  let loadedDone = false;
+  const loaded = ext.storage.local.get(null).then((all) => {
+    for (const k of Object.keys(all)) {
+      if (k.startsWith(CHOICE_PREFIX)) manualChoices.set(k.slice(CHOICE_PREFIX.length), all[k]);
+      else if (k.startsWith(FRAME_PREFIX)) frames.set(k.slice(FRAME_PREFIX.length), all[k]);
+      else if (k.startsWith(SHOWN_PREFIX)) shownAll.set(k.slice(SHOWN_PREFIX.length), all[k] && all[k].url);
+    }
+    loadedDone = true;
     document.querySelectorAll('img.wmi-img').forEach((i) => applyFrame(i, i.dataset.wmiTitle));
-  });
+    scan();
+  }, () => { loadedDone = true; });
   function frameFor(title, url) {
     const f = frames.get(title);
-    return f && f.url === url ? f : DEFAULT_FRAME;
+    return f && f.url === url ? { ...DEFAULT_FRAME, ...f } : DEFAULT_FRAME;
   }
   function setFrameStyle(el, f) {
+    f = { ...DEFAULT_FRAME, ...f };
     el.style.setProperty('object-position', `${f.x}% ${f.y}%`, 'important');
     el.style.setProperty('transform-origin', `${f.x}% ${f.y}%`, 'important');
-    el.style.setProperty('transform', `scale(${f.z})`, 'important');
+    el.style.setProperty('transform', `scale(${f.m ? -f.z : f.z}, ${f.z})`, 'important');
+    const filter = `brightness(${f.b}%) contrast(${f.c}%) saturate(${f.s}%) grayscale(${f.g ? 1 : 0}) sepia(${f.sp ? 1 : 0})`;
+    if (filter === 'brightness(100%) contrast(100%) saturate(100%) grayscale(0) sepia(0)') el.style.removeProperty('filter');
+    else el.style.setProperty('filter', filter, 'important');
+    // vignette : bords assombris, posés sur le bloc qui contient l'image
+    if (el.parentElement) el.parentElement.classList.toggle('wmi-vignette', !!f.v);
   }
   function applyFrame(img, title) {
     if (!title || !img.dataset.wmiUrl) return;
@@ -162,7 +250,11 @@
     img.addEventListener('error', () => {
       if (img.dataset.wmiUrl !== url) return;
       badUrls.add(url);
-      // image choisie à la main qui a disparu (ex. lien Google) : on oublie ce choix
+      // image choisie à la main qui ne s'affiche pas (site qui bloque, lien mort) : on prévient et on oublie ce choix
+      if (manualChoices.get(title) === url) {
+        manualChoices.delete(title);
+        toast(`« ${title} » : cette image refuse de s'afficher sur WikiMasters (le site qui l'héberge le bloque ou le lien est mort). Choisis-en une autre.`);
+      }
       store.get(CHOICE_PREFIX + title).then((c) => { if (c === url) store.remove(CHOICE_PREFIX + title); });
       showOriginal(img, title);
     }, { once: true });
@@ -175,13 +267,17 @@
     if (box) box.classList.add('wmi-box');
     if (box && box.parentElement) box.parentElement.classList.add('wmi-frame');
     setBadge(cardOf(img), title, true);
-    store.set(SHOWN_PREFIX + title, { url, ts: Date.now() });
+    if (shownAll.get(title) !== url) {      // on n'écrit que si ça a changé
+      shownAll.set(title, url);
+      store.set(SHOWN_PREFIX + title, { url, ts: Date.now() });
+    }
     refreshPanel();
   }
 
   function unstyle(img) {
     img.classList.remove('wmi-img');
-    ['object-position', 'transform-origin', 'transform'].forEach((p) => img.style.removeProperty(p));
+    ['object-position', 'transform-origin', 'transform', 'filter'].forEach((p) => img.style.removeProperty(p));
+    if (img.parentElement) img.parentElement.classList.remove('wmi-vignette');
     delete img.dataset.wmiUrl;
     delete img.dataset.wmiTitle;
     delete img.dataset.wmiOrig;
@@ -196,7 +292,7 @@
     unstyle(img);
     img.dataset.wmiChecked = title + '|' + img.getAttribute('src');
     setBadge(cardOf(img), title, false);
-    store.remove(SHOWN_PREFIX + title);
+    if (shownAll.has(title)) { shownAll.delete(title); store.remove(SHOWN_PREFIX + title); }
     refreshPanel();
   }
 
@@ -241,10 +337,35 @@
     const img = mainImg(card);
     const title = titleOf(card);
     if (!img || !title) return;
-    if (img.classList.contains('wmi-img') && img.dataset.wmiTitle === title) return;  // déjà fait
+    if (img.dataset.wmiBusy) return;
+    // on attend d'avoir chargé tes choix avant de décider quoi afficher
+    // (sinon l'image automatique pouvait passer devant ton choix en revenant sur la collection)
+    if (!loadedDone) {
+      img.dataset.wmiBusy = '1';
+      await loaded;
+      delete img.dataset.wmiBusy;
+      if (titleOf(cardOf(img)) !== title) return;
+    }
+    const manualNow = manualChoices.get(title);
+    if (img.classList.contains('wmi-img') && img.dataset.wmiTitle === title) {
+      // déjà modifiée : on vérifie juste que c'est bien ton choix qui est affiché
+      if (manualNow === 'none') { showOriginal(img, title); return; }
+      if (manualNow && !badUrls.has(manualNow) && img.dataset.wmiUrl !== manualNow) showImage(img, manualNow, title);
+      return;
+    }
     const src = img.getAttribute('src') || '';
     const key = title + '|' + src;
-    if (img.dataset.wmiChecked === key || img.dataset.wmiBusy) return;
+    // Une image choisie à la main est toujours remise, même si le site a ré-affiché la sienne entre-temps
+    const manual = manualChoices.get(title);
+    if (manual && manual !== 'none' && !badUrls.has(manual) && src !== manual) {
+      const m = (reapplied.get(title) || 0) + 1;
+      reapplied.set(title, m);
+      if (m <= 6) { showImage(img, manual, title); return; }
+    }
+    if (img.dataset.wmiChecked === key) return;
+    // rareté désactivée : pas de modification automatique (ton choix manuel, lui, est appliqué plus haut)
+    await modeReady;
+    if (offRarities.size && offRarities.has(rarityOf(card))) { img.dataset.wmiChecked = key; return; }
     // sécurité anti-clignotement : pas plus de 3 essais par carte et par visite
     const n = (tries.get(title) || 0) + 1;
     tries.set(title, n);
@@ -338,6 +459,7 @@
   // ---------- menu en bas de la page ----------
   let panel = null;
   let panelOpen = false;
+  let listFilter = '';
   let showAll = false;
   let panelTimer = null;
 
@@ -354,14 +476,15 @@
   }
 
   async function renderPanel() {
+    // ne pas tout redessiner pendant qu'on tape dans le filtre ou qu'on choisit un mode
+    if (panel && panel.contains(document.activeElement) && /^(INPUT|SELECT)$/.test(document.activeElement.tagName)) return;
     const cardsOnPage = [...document.querySelectorAll('h3')].filter((h) => cardOf(h) && cardOf(h).querySelector('img'));
     const modified = [...document.querySelectorAll('img.wmi-img')]
       .filter((i) => i.dataset.wmiTitle && cardTitleOfImg(i) === i.dataset.wmiTitle);
     const empty = allCards().map(mainImg).filter((i) => i && (i.getAttribute('src') || '').includes(PLACEHOLDER));
-    const all = await ext.storage.local.get(null);
-    const totalTitles = Object.keys(all).filter((k) => k.startsWith(SHOWN_PREFIX)).map((k) => k.slice(SHOWN_PREFIX.length)).sort((a, b) => a.localeCompare(b, 'fr'));
+    const totalCount = shownAll.size;
 
-    if (!cardsOnPage.length && !totalTitles.length) { panel?.remove(); panel = null; return; }
+    if (!cardsOnPage.length && !totalCount) { panel?.remove(); panel = null; return; }
     if (!panel || !panel.isConnected) {
       panel = document.createElement('div');
       panel.className = 'wmi-bar';
@@ -374,13 +497,13 @@
     head.className = 'wmi-bar-head';
     head.innerHTML = `<span>🖼</span> <b></b> modifiée(s) sur cette page <span class="wmi-dim"></span> <span class="wmi-arrow"></span>`;
     head.querySelector('b').textContent = modified.length;
-    head.querySelector('.wmi-dim').textContent = `· ${empty.length} sans image · ${totalTitles.length} au total`;
+    head.querySelector('.wmi-dim').textContent = `· ${empty.length} sans image · ${totalCount.toLocaleString("fr-FR")} au total`;
     head.querySelector('.wmi-arrow').textContent = panelOpen ? '▼' : '▲';
     head.onclick = () => { panelOpen = !panelOpen; renderPanel(); };
     panel.appendChild(head);
     if (!panelOpen) return;
 
-    const body = document.createElement('div');
+    let body = document.createElement('div');
     body.className = 'wmi-bar-body';
 
     // choix du mode
@@ -396,6 +519,41 @@
     sel.value = mode;
     sel.onchange = () => ext.storage.local.set({ mode: sel.value });  // la page se recharge toute seule
     body.appendChild(modeRow);
+
+    // raretés à modifier automatiquement
+    const rarRow = document.createElement('div');
+    rarRow.className = 'wmi-mode wmi-rar';
+    rarRow.innerHTML = '<span>Raretés modifiées automatiquement :</span>';
+    for (const [code, label] of RARITIES) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'wmi-chip' + (offRarities.has(code) ? '' : ' wmi-on');
+      chip.textContent = code;
+      chip.title = label + (offRarities.has(code) ? ' : désactivée' : ' : activée');
+      chip.onclick = () => {
+        const next = new Set(offRarities);
+        next.has(code) ? next.delete(code) : next.add(code);
+        ext.storage.local.set({ offRarities: [...next] });   // la page se recharge toute seule
+      };
+      rarRow.appendChild(chip);
+    }
+    body.appendChild(rarRow);
+
+    // compteur des images personnalisées à la main + place dans la synchro
+    const manualCount = [...manualChoices.values()].filter((v) => v && v !== 'none').length;
+    const cap = syncInfo && syncInfo.ok && syncInfo.cards && syncInfo.bytes
+      ? Math.floor(syncInfo.cards * 92000 / syncInfo.bytes / 100) * 100 : 2000;
+    const counter = document.createElement('div');
+    counter.className = 'wmi-counter';
+    const pct = Math.min(100, Math.round(manualCount / cap * 100));
+    counter.innerHTML = `<div><b></b> image(s) choisie(s) à la main <span class="wmi-dim"></span></div><div class="wmi-gauge"><i></i></div>`;
+    counter.querySelector('b').textContent = manualCount.toLocaleString('fr-FR');
+    counter.querySelector('.wmi-dim').textContent = syncInfo && syncInfo.full
+      ? `· synchro entre PC pleine : les ${syncInfo.cards.toLocaleString('fr-FR')} plus récentes suivent, utilise la sauvegarde pour le reste`
+      : `· synchro entre PC : ${manualCount.toLocaleString('fr-FR')} / ≈ ${cap.toLocaleString('fr-FR')} (sans limite sur ce PC)`;
+    counter.querySelector('i').style.width = pct + '%';
+    if (pct >= 90) counter.classList.add('wmi-warn');
+    body.appendChild(counter);
 
     const badgeRow = document.createElement('label');
     badgeRow.className = 'wmi-mode wmi-check';
@@ -451,15 +609,43 @@
     const toggle = document.createElement('button');
     toggle.type = 'button';
     toggle.className = 'wmi-bar-toggle';
-    toggle.textContent = showAll ? `Masquer la liste complète` : `Voir toutes les cartes modifiées (${totalTitles.length})`;
+    toggle.textContent = showAll ? `Masquer la liste complète` : `Voir toutes les cartes modifiées (${totalCount.toLocaleString('fr-FR')})`;
     toggle.onclick = () => { showAll = !showAll; renderPanel(); };
     body.appendChild(toggle);
     if (showAll) {
+      // liste filtrable : avec 30 000 cartes, on n'en affiche que 200 à la fois
+      const LIMIT = 200;
       const onPage = new Map(modified.map((i) => [i.dataset.wmiTitle, i]));
-      section('Toutes les cartes modifiées (toutes pages confondues)', totalTitles.map((t) => ({
-        title: t, thumb: all[SHOWN_PREFIX + t].url,
-        onClick: onPage.has(t) ? () => flash(cardOf(onPage.get(t))) : null,
-      })));
+      const search = document.createElement('input');
+      search.type = 'search';
+      search.className = 'wmi-bar-search';
+      search.placeholder = 'Filtrer par nom…';
+      search.value = listFilter;
+      body.appendChild(search);
+      const holder = document.createElement('div');
+      body.appendChild(holder);
+      const fill = () => {
+        holder.innerHTML = '';
+        const q = listFilter.toLowerCase();
+        const titles = [];
+        for (const t of shownAll.keys()) { if (!q || t.toLowerCase().includes(q)) titles.push(t); }
+        titles.sort((a, b) => a.localeCompare(b, 'fr'));
+        const saved = body;
+        body = holder;   // section() écrit dans « body »
+        section(`Toutes les cartes modifiées (${titles.length.toLocaleString('fr-FR')})`, titles.slice(0, LIMIT).map((t) => ({
+          title: t, thumb: shownAll.get(t),
+          onClick: onPage.has(t) ? () => flash(cardOf(onPage.get(t))) : null,
+        })));
+        if (titles.length > LIMIT) {
+          const more = document.createElement('div');
+          more.className = 'wmi-dim wmi-bar-none';
+          more.textContent = `… et ${(titles.length - LIMIT).toLocaleString('fr-FR')} autres : tape un nom pour filtrer.`;
+          holder.appendChild(more);
+        }
+        body = saved;
+      };
+      search.oninput = () => { listFilter = search.value; fill(); };
+      fill();
     }
     panel.appendChild(body);
   }
@@ -479,11 +665,24 @@
     modal.className = 'wmi-modal';
     modal.innerHTML = `
       <div class="wmi-panel wmi-adjust">
-        <div class="wmi-head"><strong>Ajuster le cadrage</strong><button type="button" class="wmi-close" title="Fermer">✕</button></div>
+        <div class="wmi-head"><strong>Ajuster l'image</strong><button type="button" class="wmi-close" title="Fermer">✕</button></div>
         <div class="wmi-dim wmi-adj-title"></div>
         <div class="wmi-adj-box"><img alt=""></div>
         <div class="wmi-adj-zoom"><span>🔍</span><input type="range" min="1" max="3" step="0.01"><span class="wmi-adj-val"></span></div>
         <div class="wmi-dim wmi-adj-hint">Glisse l'image pour la déplacer · molette ou curseur pour zoomer</div>
+        <div class="wmi-sub">Retouches</div>
+        <div class="wmi-look">
+          <label>☀ Luminosité<input type="range" data-k="b" min="40" max="160" step="1"></label>
+          <label>◑ Contraste<input type="range" data-k="c" min="40" max="160" step="1"></label>
+          <label>🎨 Saturation<input type="range" data-k="s" min="0" max="200" step="1"></label>
+        </div>
+        <div class="wmi-toggles">
+          <button type="button" data-t="g">⚫ Noir et blanc</button>
+          <button type="button" data-t="sp">🟤 Sépia</button>
+          <button type="button" data-t="m">↔ Miroir</button>
+          <button type="button" data-t="v">◐ Vignette</button>
+          <button type="button" class="wmi-look-reset">Annuler les retouches</button>
+        </div>
         <div class="wmi-actions">
           <button type="button" class="wmi-adj-reset">Recentrer</button>
           <span style="flex:1"></span>
@@ -499,8 +698,15 @@
     pic.src = url;
     const zoom = modal.querySelector('input[type=range]');
     const val = modal.querySelector('.wmi-adj-val');
+    const sliders = [...modal.querySelectorAll('.wmi-look input')];
+    const toggles = [...modal.querySelectorAll('.wmi-toggles [data-t]')];
+    sliders.forEach((s) => { s.oninput = () => { f[s.dataset.k] = +s.value; render(); }; });
+    toggles.forEach((t) => { t.onclick = () => { f[t.dataset.t] = f[t.dataset.t] ? 0 : 1; render(); }; });
+    modal.querySelector('.wmi-look-reset').onclick = () => { Object.assign(f, DEFAULT_LOOK); render(); };
     const render = () => {
       setFrameStyle(pic, f);
+      sliders.forEach((s) => { s.value = f[s.dataset.k]; });
+      toggles.forEach((t) => t.classList.toggle('wmi-on', !!f[t.dataset.t]));
       zoom.value = f.z;
       val.textContent = Math.round(f.z * 100) + ' %';
       // aperçu en direct sur les cartes
@@ -533,9 +739,11 @@
     modal.addEventListener('click', (e) => { e.stopPropagation(); if (e.target === modal) { restore(); close(); } });
     modal.querySelector('.wmi-close').onclick = () => { restore(); close(); };
     modal.querySelector('.wmi-adj-cancel').onclick = () => { restore(); close(); };
-    modal.querySelector('.wmi-adj-reset').onclick = () => { f = { ...DEFAULT_FRAME }; render(); };
+    modal.querySelector('.wmi-adj-reset').onclick = () => { Object.assign(f, { x: DEFAULT_FRAME.x, y: DEFAULT_FRAME.y, z: 1 }); render(); };
     modal.querySelector('.wmi-adj-ok').onclick = async () => {
       const saved = { url, x: Math.round(f.x * 10) / 10, y: Math.round(f.y * 10) / 10, z: Math.round(f.z * 100) / 100 };
+      // on n'enregistre que les retouches réellement utilisées (moins de place pour la synchro)
+      for (const k of Object.keys(DEFAULT_LOOK)) if (f[k] !== DEFAULT_LOOK[k]) saved[k] = f[k];
       frames.set(title, saved);
       await store.set(FRAME_PREFIX + title, saved);
       restore();
@@ -587,6 +795,9 @@
     modal.querySelector('.wmi-settings').onclick = () => ask({ type: 'options' });
 
     const pick = async (url) => {
+      manualChoices.set(title, url);
+      reapplied.delete(title);
+      badUrls.delete(url);
       await store.set(CHOICE_PREFIX + title, url);
       forEachCardTitled(title, (i) => showImage(i, url, title));
       openAdjust(img, title, url);   // dernière étape : ajuster le cadrage
@@ -689,7 +900,7 @@
 
   // ---------- surveiller la page (changement de page, filtres, nouveaux boosters…) ----------
   let timer = null;
-  const ours = (n) => n.nodeType === 1 && (n.matches('.wmi-bar, .wmi-modal, .wmi-badge, .wmi-detail-btn') || n.closest('.wmi-bar, .wmi-modal'));
+  const ours = (n) => n.nodeType === 1 && (n.matches('.wmi-bar, .wmi-modal, .wmi-badge, .wmi-detail-btn, .wmi-toast') || n.closest('.wmi-bar, .wmi-modal'));
   const observer = new MutationObserver((muts) => {
     // on ignore les changements faits par l'extension elle-même (menu, fenêtre, badges)
     if (muts.every((m) => ours(m.target) || (m.type === 'childList' &&

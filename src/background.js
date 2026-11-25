@@ -174,21 +174,72 @@ async function search(title, desc) {
   return ordered.filter((x) => x && !seen.has(x.url) && seen.add(x.url)).slice(0, 12);
 }
 
+// ---------- mémoire des recherches, plafonnée ----------
+// On garde les résultats des 5 000 dernières cartes vues. Au-delà, les plus anciennes sont oubliées
+// (si l'une d'elles revient, on refait simplement la recherche). Ça évite de remplir le navigateur
+// quand on parcourt une collection de 30 000 cartes.
+const CACHE_MAX = 5000;
+const IDX_KEY = 'wmi-cache-idx';
+let cacheIdx = null;          // { titre: date de dernière utilisation }
+let idxTimer = null;
+
+async function loadIdx() {
+  if (cacheIdx) return cacheIdx;
+  const r = (await ext.storage.local.get(IDX_KEY))[IDX_KEY];
+  if (r) {
+    cacheIdx = r;
+  } else {
+    // première fois (ou ancienne version) : on construit l'index à partir de ce qui existe
+    const all = await ext.storage.local.get(null);
+    cacheIdx = {};
+    for (const k of Object.keys(all)) if (k.startsWith(CACHE_PREFIX)) cacheIdx[k.slice(CACHE_PREFIX.length)] = (all[k] && all[k].ts) || Date.now();
+    await ext.storage.local.set({ [IDX_KEY]: cacheIdx });
+  }
+  return cacheIdx;
+}
+
+function saveIdxSoon() {
+  clearTimeout(idxTimer);
+  idxTimer = setTimeout(() => ext.storage.local.set({ [IDX_KEY]: cacheIdx }), 3000);
+}
+
+async function touchCache(title) {
+  const idx = await loadIdx();
+  idx[title] = Date.now();
+  const titles = Object.keys(idx);
+  if (titles.length > CACHE_MAX) {
+    // on retire les 20 % les plus anciens d'un coup (moins d'écritures)
+    titles.sort((a, b) => idx[a] - idx[b]);
+    const drop = titles.slice(0, titles.length - Math.floor(CACHE_MAX * 0.8));
+    for (const t of drop) delete idx[t];
+    await ext.storage.local.remove(drop.map((t) => CACHE_PREFIX + t));
+    await ext.storage.local.set({ [IDX_KEY]: idx });
+  } else {
+    saveIdxSoon();
+  }
+}
+
 async function cachedSearch(title, desc) {
   const key = CACHE_PREFIX + title;
   const c = (await ext.storage.local.get(key))[key];
-  if (c && Date.now() - c.ts < (c.list.length ? TTL_FOUND : TTL_NOTHING)) return c.list;
+  if (c && Date.now() - c.ts < (c.list.length ? TTL_FOUND : TTL_NOTHING)) {
+    touchCache(title);
+    return c.list;
+  }
   const list = await search(title, desc);
   await ext.storage.local.set({ [key]: { list, ts: Date.now() } });
+  touchCache(title);
   return list;
 }
 
-// Quand on ajoute ou change la clé TMDB, on oublie les recherches "rien trouvé" pour réessayer
+// Quand on ajoute ou change la clé TMDB, on oublie les recherches pour réessayer avec TMDB
 ext.storage.onChanged.addListener(async (changes, area) => {
   if (area !== 'local' || !changes.tmdbKey) return;
-  const all = await ext.storage.local.get(null);
-  const stale = Object.keys(all).filter((k) => k.startsWith(CACHE_PREFIX));
-  if (stale.length) await ext.storage.local.remove(stale);
+  const idx = await loadIdx();
+  const keys = Object.keys(idx).map((t) => CACHE_PREFIX + t);
+  if (keys.length) await ext.storage.local.remove(keys);
+  cacheIdx = {};
+  await ext.storage.local.set({ [IDX_KEY]: cacheIdx });
 });
 
 // ---------- messages venant de la page ----------
@@ -244,24 +295,48 @@ ext.runtime.onInstalled.addListener(async () => {
 // SYNCHRO ENTRE PC
 // Les choix faits à la main (images choisies, recadrages, réglages) sont copiés dans
 // l'espace « sync » du navigateur, qui suit ton compte (Google pour Chrome, Firefox pour Firefox).
+// Cet espace est petit (~100 Ko) : les données sont compressées avant l'envoi.
 // Chaque élément garde la date de sa dernière modification : c'est la plus récente qui gagne.
 // =====================================================================
-const SYNC_SETTINGS = ['mode', 'showBadges', 'tmdbKey'];
-const STATE_KEY = 'wmi-sync-state';
-const SYNC_CHUNK = 3500;      // taille d'un morceau (limite navigateur : 8 Ko, avec marge pour les accents)
-const SYNC_MAX = 90000;       // place totale dispo en octets (limite navigateur : ~100 Ko)
-// taille réelle comptée par le navigateur (le texte est ré-encodé : guillemets échappés, accents sur 2 octets)
-const bytes = (s) => new TextEncoder().encode(JSON.stringify(s)).length;
+const SYNC_SETTINGS = ['mode', 'showBadges', 'tmdbKey', 'offRarities'];
+const STATE_KEY = 'wmi-sync-state';   // { clé: date de modif } (date négative = supprimé)
+const SYNC_CHUNK = 7500;               // caractères par morceau (limite navigateur : 8 Ko par morceau)
+const SYNC_MAX = 92000;                // caractères au total (limite navigateur : ~100 Ko)
 const isSyncedKey = (k) => k.startsWith('wmi-choice:') || k.startsWith('wmi-frame:') || SYNC_SETTINGS.includes(k);
-const same = (a, b) => JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+const echoes = new Map();              // valeurs qu'on vient de recevoir d'un autre PC (à ne pas renvoyer)
+
+// --- compression (deflate natif du navigateur) + texte base64 ---
+async function pack(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  const buf = new Uint8Array(await new Response(stream).arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+async function unpack(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return JSON.parse(await new Response(stream).text());
+}
 
 async function loadState() {
-  const r = await ext.storage.local.get(STATE_KEY);
-  if (r[STATE_KEY]) return r[STATE_KEY];
+  const r = (await ext.storage.local.get(STATE_KEY))[STATE_KEY];
+  if (r) {
+    // ancienne version : { clé: {v, t} } → { clé: t }
+    let migrated = false;
+    for (const [k, e] of Object.entries(r)) {
+      if (e && typeof e === 'object') { r[k] = e.v === null ? -e.t : e.t; migrated = true; }
+    }
+    if (migrated) await ext.storage.local.set({ [STATE_KEY]: r });
+    return r;
+  }
   // première fois : on part de ce qui existe déjà sur ce PC
   const all = await ext.storage.local.get(null);
   const state = {};
-  for (const k of Object.keys(all)) if (isSyncedKey(k)) state[k] = { v: all[k], t: Date.now() };
+  for (const k of Object.keys(all)) if (isSyncedKey(k)) state[k] = Date.now();
   await ext.storage.local.set({ [STATE_KEY]: state });
   schedulePush();
   return state;
@@ -276,60 +351,76 @@ function schedulePush() {
 async function push() {
   if (!ext.storage.sync) return;
   const state = await loadState();
-  // on oublie les suppressions de plus de 60 jours
   const old = Date.now() - 60 * 24 * 3600 * 1000;
-  let entries = Object.entries(state).filter(([, e]) => e.v !== null || e.t > old);
-  let json = JSON.stringify(Object.fromEntries(entries));
-  let full = false;
-  if (bytes(json) > SYNC_MAX) {
-    // trop gros : réglages d'abord, puis les modifications les plus récentes
-    full = true;
-    entries.sort((a, b) => (SYNC_SETTINGS.includes(b[0]) - SYNC_SETTINGS.includes(a[0])) || (b[1].t - a[1].t));
-    while (entries.length && bytes(JSON.stringify(Object.fromEntries(entries))) > SYNC_MAX) {
-      entries.splice(Math.max(1, Math.floor(entries.length * 0.97)));
+  // réglages d'abord, puis les plus récents ; on oublie les suppressions de plus de 60 jours
+  const keys = Object.keys(state)
+    .filter((k) => state[k] > 0 || -state[k] > old)
+    .sort((a, b) => (SYNC_SETTINGS.includes(b) - SYNC_SETTINGS.includes(a)) || (Math.abs(state[b]) - Math.abs(state[a])));
+  const values = await ext.storage.local.get(keys.filter((k) => state[k] > 0));
+  const records = keys.map((k) => (state[k] > 0 ? [k, state[k], values[k]] : [k, state[k]]));
+
+  // on garde le plus d'éléments possible qui tiennent dans la place disponible (recherche par dichotomie)
+  let lo = 0, hi = records.length, best = await pack([]);
+  if ((await pack(records)).length <= SYNC_MAX) { lo = hi; best = await pack(records); }
+  else {
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      const p = await pack(records.slice(0, mid));
+      if (p.length <= SYNC_MAX) { lo = mid; best = p; } else hi = mid - 1;
     }
-    json = JSON.stringify(Object.fromEntries(entries));
   }
-  const chunks = {};
+  const full = lo < records.length;
+  const cards = records.slice(0, lo).filter((r) => r[1] > 0 && r[0].startsWith('wmi-choice:')).length;
+
+  const chunks = { v: 2 };
   let n = 0;
-  for (let i = 0; i < json.length; i += SYNC_CHUNK) chunks['s' + n++] = json.slice(i, i + SYNC_CHUNK);
-  chunks.sn = n;
+  for (let i = 0; i < best.length; i += SYNC_CHUNK) chunks['z' + n++] = best.slice(i, i + SYNC_CHUNK);
+  chunks.zn = n;
   try {
     const before = await ext.storage.sync.get(null);
-    const extra = Object.keys(before).filter((k) => /^s\d+$/.test(k) && +k.slice(1) >= n);
+    const extra = Object.keys(before).filter((k) => /^(s\d+|sn)$/.test(k) || (/^z\d+$/.test(k) && +k.slice(1) >= n));
     await ext.storage.sync.set(chunks);
     if (extra.length) await ext.storage.sync.remove(extra);
-    await ext.storage.local.set({ 'wmi-sync-info': { ok: true, full, count: entries.length, ts: Date.now() } });
+    await ext.storage.local.set({ 'wmi-sync-info': { ok: true, full, count: lo, cards, bytes: best.length, ts: Date.now() } });
   } catch (e) {
-    await ext.storage.local.set({ 'wmi-sync-info': { ok: false, error: String(e && e.message || e), ts: Date.now() } });
+    await ext.storage.local.set({ 'wmi-sync-info': { ok: false, error: String((e && e.message) || e), ts: Date.now() } });
   }
 }
 
 async function pull() {
   if (!ext.storage.sync) return;
-  let remote;
+  let records;
   try {
     const all = await ext.storage.sync.get(null);
-    if (!all.sn) return;
-    let json = '';
-    for (let i = 0; i < all.sn; i++) json += all['s' + i] || '';
-    remote = JSON.parse(json);
+    if (all.zn) {
+      let b64 = '';
+      for (let i = 0; i < all.zn; i++) b64 += all['z' + i] || '';
+      records = await unpack(b64);
+    } else if (all.sn) {
+      // format de la version 2.0/2.1 (non compressé)
+      let json = '';
+      for (let i = 0; i < all.sn; i++) json += all['s' + i] || '';
+      records = Object.entries(JSON.parse(json)).map(([k, e]) => (e.v === null ? [k, -e.t] : [k, e.t, e.v]));
+    } else return;
   } catch (e) {
     return;   // morceaux pas encore tous arrivés : on réessaiera au prochain changement
   }
   const state = await loadState();
   const toSet = {};
   const toRemove = [];
-  let localNewer = false;
-  for (const [k, e] of Object.entries(remote)) {
+  const remote = new Map();
+  for (const [k, t, v] of records) {
+    remote.set(k, t);
     const mine = state[k];
-    if (!mine || e.t > mine.t) {
-      state[k] = e;
-      if (e.v === null) toRemove.push(k); else toSet[k] = e.v;
+    if (mine === undefined || Math.abs(t) > Math.abs(mine)) {
+      state[k] = t;
+      if (t < 0) { toRemove.push(k); echoes.set(k, 'null'); }
+      else { toSet[k] = v; echoes.set(k, JSON.stringify(v)); }
     }
   }
-  for (const [k, e] of Object.entries(state)) {
-    if (!remote[k] || e.t > remote[k].t) localNewer = true;
+  let localNewer = false;
+  for (const [k, t] of Object.entries(state)) {
+    if (!remote.has(k) || Math.abs(t) > Math.abs(remote.get(k))) { localNewer = true; break; }
   }
   await ext.storage.local.set({ ...toSet, [STATE_KEY]: state });
   if (toRemove.length) await ext.storage.local.remove(toRemove);
@@ -337,7 +428,7 @@ async function pull() {
 }
 
 ext.storage.onChanged.addListener(async (changes, area) => {
-  if (area === 'sync') { if (Object.keys(changes).some((k) => /^s(n|\d+)$/.test(k))) pull(); return; }
+  if (area === 'sync') { if (Object.keys(changes).some((k) => /^(z|s)(n|\d+)$/.test(k))) pull(); return; }
   if (area !== 'local') return;
   const keys = Object.keys(changes).filter(isSyncedKey);
   if (!keys.length) return;
@@ -345,8 +436,9 @@ ext.storage.onChanged.addListener(async (changes, area) => {
   let changed = false;
   for (const k of keys) {
     const v = changes[k].newValue === undefined ? null : changes[k].newValue;
-    if (state[k] && same(state[k].v, v)) continue;    // c'est nous qui venons de l'écrire (copie depuis un autre PC)
-    state[k] = { v, t: Date.now() };
+    const sv = JSON.stringify(v);
+    if (echoes.get(k) === sv) { echoes.delete(k); continue; }   // c'est la copie qu'on vient de recevoir
+    state[k] = v === null ? -Date.now() : Date.now();
     changed = true;
   }
   if (changed) {

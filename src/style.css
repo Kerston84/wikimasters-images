@@ -160,3 +160,45 @@ img.wmi-img {
   background: rgba(245, 158, 11, .08); color: #fbbf24; font-size: 13px; cursor: pointer;
 }
 .wmi-gif-btn:disabled { opacity: .7; cursor: default; }
+
+.wmi-toast {
+  position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%); z-index: 2147483646;
+  max-width: min(520px, 90vw); padding: 10px 14px; border-radius: 10px;
+  background: #7c2d12; color: #fff; border: 1px solid #f59e0b;
+  font: 13px system-ui, sans-serif; box-shadow: 0 6px 20px rgba(0,0,0,.5);
+}
+
+.wmi-bar-search {
+  width: 100%; box-sizing: border-box; margin-top: 10px; padding: 6px 10px; border-radius: 8px;
+  border: 1px solid #3f3f46; background: #09090b; color: #eee; font: inherit;
+}
+
+/* Retouches */
+.wmi-vignette::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 1;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, .65) 100%);
+}
+.wmi-look { display: grid; gap: 6px; }
+.wmi-look label { display: grid; grid-template-columns: 120px 1fr; align-items: center; font-size: 13px; }
+.wmi-look input { accent-color: #f59e0b; }
+.wmi-toggles { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.wmi-toggles button {
+  padding: 6px 10px; border-radius: 8px; border: 1px solid #3f3f46; cursor: pointer;
+  background: #27272a; color: #eee; font-size: 12px;
+}
+.wmi-toggles button.wmi-on { background: rgba(245, 158, 11, .2); border-color: #f59e0b; color: #fbbf24; }
+.wmi-toggles .wmi-look-reset { margin-left: auto; }
+
+/* Raretés et compteur dans le menu du bas */
+.wmi-rar { gap: 6px; }
+.wmi-chip {
+  min-width: 34px; padding: 4px 8px; border-radius: 999px; border: 1px solid #3f3f46;
+  background: #27272a; color: #71717a; font: 600 12px system-ui, sans-serif; cursor: pointer;
+  text-decoration: line-through;
+}
+.wmi-chip.wmi-on { background: rgba(245, 158, 11, .18); border-color: #f59e0b; color: #fbbf24; text-decoration: none; }
+.wmi-counter { margin-top: 12px; font-size: 12px; }
+.wmi-counter b { color: #fbbf24; }
+.wmi-gauge { height: 6px; border-radius: 99px; background: #27272a; margin-top: 6px; overflow: hidden; }
+.wmi-gauge i { display: block; height: 100%; background: #22c55e; }
+.wmi-counter.wmi-warn .wmi-gauge i { background: #f59e0b; }

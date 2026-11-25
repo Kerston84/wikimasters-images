@@ -21,7 +21,9 @@ Fonctionne sur **Chrome, Brave, Edge** et **Firefox**.
 | **Choisir l'image soi-même** | Ouvre une carte → **« 🖼 Changer l'image »** : propositions de toutes les banques + 3 images Google + possibilité de coller n'importe quel lien. |
 | **GIF animés** 🎞 | Bouton « Proposer des GIF » dans la même fenêtre, ou colle un lien Giphy / Tenor. |
 | **Recadrage** ✂ | Après chaque choix : glisse l'image et zoome pour un cadrage parfait. Marche aussi sur les images d'origine du jeu. |
-| **Menu en bas de page** | Nombre de cartes modifiées, liste cliquable (la page défile jusqu'à la carte), choix du mode, affichage des boutons. |
+| **Retouches** 🎨 | Luminosité, contraste, saturation, noir et blanc, sépia, miroir et vignette, dans la même fenêtre. |
+| **Menu en bas de page** | Nombre de cartes modifiées, liste cliquable (la page défile jusqu'à la carte), choix du mode, affichage des boutons, compteur des images choisies à la main (avec la place restante dans la synchro). |
+| **Choix des raretés** | Désactive les modifications automatiques pour certaines raretés (ex. les Communes) en un clic dans le menu du bas. Tes choix faits à la main restent appliqués. |
 | **Synchro entre tes PC** | Tes choix manuels, recadrages et réglages suivent ton compte du navigateur. |
 | **Sauvegarde** | Export / import d'un fichier depuis la page de réglages. |
 
@@ -90,7 +92,10 @@ Tes choix, recadrages et réglages sont conservés.
 - **Chrome / Edge** : automatique si tu es connecté au même compte Google (ou Microsoft pour Edge) avec la synchronisation activée.
 - **Firefox** : automatique avec un compte Firefox et la synchronisation des modules activée.
 - **Brave**, ou pour passer **de Chrome à Firefox** : utilise **Exporter / Importer une sauvegarde** dans les réglages.
-- Capacité de la synchro : environ **550 cartes** modifiées à la main (au-delà, les plus récentes sont synchronisées ; la sauvegarde n'a pas de limite).
+- Capacité de la synchro : environ **2 000 cartes** modifiées à la main (données compressées ; au-delà, les plus récentes sont synchronisées). La sauvegarde par fichier n'a pas de limite.
+
+### Grosses collections
+L'extension est prévue pour des collections de **30 000 cartes et plus** : tu peux modifier autant de cartes que tu veux sur un PC. Elle garde en mémoire les recherches des 5 000 dernières cartes vues (les plus anciennes sont refaites si besoin), et la liste « toutes les cartes modifiées » du menu du bas se filtre par nom.
 
 ---
 

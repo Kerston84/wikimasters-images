@@ -61,18 +61,18 @@ const syncStatus = document.getElementById('sync-status');
 async function showSync() {
   const r = await ext.storage.local.get(['wmi-sync-info', 'wmi-sync-state']);
   const info = r['wmi-sync-info'];
-  const n = Object.values(r['wmi-sync-state'] || {}).filter((e) => e.v !== null).length;
+  const n = Object.values(r['wmi-sync-state'] || {}).filter((t) => (typeof t === 'number' ? t > 0 : t && t.v !== null)).length;
   if (!ext.storage.sync) syncStatus.textContent = '❌ Ce navigateur ne propose pas la synchro des extensions.';
   else if (!info) syncStatus.textContent = `⏳ ${n} élément(s) à synchroniser — la synchro démarre à ta prochaine modification.`;
   else if (!info.ok) syncStatus.textContent = '❌ Synchro impossible : ' + info.error;
-  else if (info.full) syncStatus.textContent = `⚠ Synchro pleine : seuls les ${info.count} éléments les plus récents sont synchronisés. Utilise la sauvegarde pour le reste.`;
-  else syncStatus.textContent = `✅ ${info.count} élément(s) synchronisé(s) — dernière synchro ${new Date(info.ts).toLocaleString('fr-FR')}`;
+  else if (info.full) syncStatus.textContent = `⚠ Synchro pleine : les ${info.cards ?? info.count} cartes modifiées le plus récemment sont synchronisées, les autres restent sur ce PC. Utilise la sauvegarde pour tout transférer.`;
+  else syncStatus.textContent = `✅ ${info.cards ?? info.count} carte(s) synchronisée(s) — dernière synchro ${new Date(info.ts).toLocaleString('fr-FR')}`;
 }
 showSync();
 ext.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch['wmi-sync-info']) showSync(); });
 
 // ---------- sauvegarde : exporter / importer ----------
-const isSaved = (k) => k.startsWith('wmi-choice:') || k.startsWith('wmi-frame:') || ['mode', 'showBadges', 'tmdbKey'].includes(k);
+const isSaved = (k) => k.startsWith('wmi-choice:') || k.startsWith('wmi-frame:') || ['mode', 'showBadges', 'tmdbKey', 'offRarities'].includes(k);
 const io = document.getElementById('io-status');
 
 document.getElementById('export').onclick = async () => {
