@@ -6,6 +6,8 @@ Extension de navigateur **non officielle** pour [WikiMasters](https://www.wiki-m
 
 Fonctionne sur **Chrome, Brave, Edge** et **Firefox**.
 
+👤 Créée par **Le Vagicien** (mon pseudo sur WikiMasters) — n'hésite pas à me faire signe en jeu !
+
 ---
 
 ## ✨ Ce que fait l'extension
@@ -117,4 +119,4 @@ Pour fabriquer les zips : `python3 build.py`
 
 ---
 
-*Projet personnel, non affilié à WikiMasters. Les images affichées appartiennent à leurs auteurs respectifs ; l'extension ne fait que les afficher dans ton navigateur.*
+*Projet personnel de **Le Vagicien**, non affilié à WikiMasters. Les images affichées appartiennent à leurs auteurs respectifs ; l'extension ne fait que les afficher dans ton navigateur.*
