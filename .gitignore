@@ -1,0 +1,6 @@
+# fichiers fabriqués par build.py (les zips à télécharger sont dans telechargements/)
+dist/
+# clés privées : ne jamais les publier
+*.pem
+__pycache__/
+.DS_Store

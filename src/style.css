@@ -1,0 +1,162 @@
+/* L'image remplit tout l'encadré du haut de la carte */
+.wmi-frame { padding: 0 !important; display: block !important; }
+.wmi-box {
+  position: absolute !important; inset: 0 !important;
+  width: 100% !important; height: 100% !important;
+  max-width: none !important; min-width: 0 !important; aspect-ratio: auto !important;
+}
+img.wmi-img {
+  position: absolute !important; inset: 0 !important;
+  width: 100% !important; height: 100% !important;
+  object-fit: cover !important; object-position: center 25% !important;
+  opacity: 1 !important;
+}
+
+/* Badge 🖼 en bas de la carte */
+.wmi-badge {
+  position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); z-index: 45;
+  height: 22px; padding: 0 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,.25);
+  background: rgba(24, 24, 27, .85); color: #fff; font-size: 12px; line-height: 20px;
+  cursor: pointer; opacity: 0; transition: opacity .15s, transform .15s;
+  box-shadow: 0 2px 6px rgba(0,0,0,.4);
+}
+.group:hover .wmi-badge, .wmi-badge:focus { opacity: 1; }
+.wmi-badge.wmi-on { opacity: 1; background: #f59e0b; border-color: #fde68a; }
+.wmi-badge:hover { transform: translateX(-50%) scale(1.12); }
+
+/* Carte mise en évidence quand on clique dans le menu */
+.wmi-flash { animation: wmi-flash 1.6s ease-out; border-radius: 16px; }
+@keyframes wmi-flash {
+  0%, 40% { box-shadow: 0 0 0 4px #22c55e, 0 0 24px #22c55e; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* Menu en bas de la page */
+.wmi-bar {
+  position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 2147483000;
+  width: min(560px, 94vw); background: #18181b; color: #eee;
+  border: 1px solid #3f3f46; border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  font-family: system-ui, sans-serif; font-size: 13px; overflow: hidden;
+}
+.wmi-bar-head {
+  width: 100%; display: flex; gap: 6px; align-items: center; padding: 10px 14px;
+  background: none; border: 0; color: inherit; font: inherit; cursor: pointer; text-align: left;
+}
+.wmi-bar-head b { color: #fbbf24; }
+.wmi-arrow { margin-left: auto; color: #a1a1aa; }
+.wmi-dim { color: #a1a1aa; }
+.wmi-bar-body { max-height: 50vh; overflow: auto; padding: 0 14px 12px; border-top: 1px solid #27272a; }
+.wmi-bar-title { margin: 10px 0 6px; color: #a1a1aa; font-size: 12px; }
+.wmi-bar-none { margin-bottom: 4px; }
+.wmi-bar-list { display: flex; flex-direction: column; gap: 4px; }
+.wmi-row {
+  display: flex; gap: 10px; align-items: center; padding: 4px 6px; border-radius: 8px;
+  background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.wmi-row:hover:not(:disabled) { background: #27272a; }
+.wmi-row:disabled { cursor: default; opacity: .75; }
+.wmi-row img { width: 40px; height: 30px; object-fit: cover; border-radius: 4px; flex: none; }
+.wmi-row-empty::before { content: '—'; width: 40px; text-align: center; color: #71717a; flex: none; }
+.wmi-bar-toggle {
+  margin-top: 10px; padding: 6px 10px; border-radius: 8px; border: 0;
+  background: #3f3f46; color: #eee; font: inherit; cursor: pointer;
+}
+
+/* Fenêtre de choix */
+.wmi-modal {
+  position: fixed; inset: 0; z-index: 2147483647;
+  background: rgba(0, 0, 0, .7);
+  display: flex; align-items: center; justify-content: center;
+  font-family: system-ui, sans-serif;
+}
+.wmi-panel {
+  background: #18181b; color: #eee; border-radius: 14px;
+  width: min(640px, 92vw); max-height: 88vh; overflow: auto; padding: 18px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .5);
+}
+.wmi-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 16px; }
+.wmi-close { background: none; border: 0; color: #aaa; font-size: 18px; cursor: pointer; }
+.wmi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.wmi-msg { grid-column: 1 / -1; color: #aaa; margin: 8px 0; }
+.wmi-thumb {
+  padding: 0; border: 2px solid transparent; border-radius: 10px; overflow: hidden;
+  aspect-ratio: 4 / 3; background: #27272a; cursor: pointer;
+}
+.wmi-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wmi-thumb:hover { border-color: #fbbf24; }
+.wmi-current { border-color: #22c55e; }
+.wmi-paste { display: flex; gap: 8px; margin-top: 14px; }
+.wmi-paste input {
+  flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid #3f3f46;
+  background: #09090b; color: #eee; font-size: 13px;
+}
+.wmi-actions { display: flex; gap: 8px; margin-top: 10px; justify-content: flex-end; }
+.wmi-panel button.wmi-use, .wmi-actions button {
+  padding: 8px 12px; border-radius: 8px; border: 0; cursor: pointer;
+  background: #3f3f46; color: #eee; font-size: 13px;
+}
+.wmi-panel button.wmi-use { background: #16a34a; }
+
+/* Source de chaque image dans la fenêtre de choix */
+.wmi-thumb { position: relative; }
+.wmi-src {
+  position: absolute; left: 4px; bottom: 4px; padding: 1px 6px; border-radius: 6px;
+  background: rgba(0, 0, 0, .7); color: #fff; font-size: 10px;
+}
+.wmi-more-row { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+.wmi-more {
+  padding: 7px 12px; border-radius: 8px; border: 0; cursor: pointer;
+  background: #3f3f46; color: #eee; font-size: 13px;
+}
+.wmi-google { color: #fbbf24; font-size: 13px; text-decoration: none; }
+.wmi-google:hover { text-decoration: underline; }
+
+/* Choix du mode dans le menu du bas */
+.wmi-mode { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.wmi-mode select {
+  flex: 1; min-width: 220px; padding: 6px 8px; border-radius: 8px;
+  border: 1px solid #3f3f46; background: #09090b; color: #eee; font: inherit;
+}
+
+/* Option : masquer les boutons 🖼 dans la collection */
+.wmi-nobadges .group .wmi-badge { display: none !important; }
+.wmi-check { cursor: pointer; }
+.wmi-check input { width: 16px; height: 16px; accent-color: #f59e0b; cursor: pointer; }
+.wmi-hint { margin-top: 4px; font-size: 12px; }
+
+/* Bouton dans la fiche ouverte d'une carte */
+.wmi-detail-btn {
+  display: inline-block; margin-bottom: 8px; padding: 8px 14px; border-radius: 10px;
+  border: 1px solid #f59e0b; background: rgba(245, 158, 11, .12); color: #fbbf24;
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.wmi-detail-btn:hover { background: rgba(245, 158, 11, .25); }
+
+.wmi-sub { margin: 14px 0 8px; font-size: 13px; font-weight: 600; }
+.wmi-sub .wmi-dim { font-weight: 400; font-size: 12px; }
+
+/* Recadrage : l'image zoomée ne dépasse pas de l'encadré */
+.wmi-box { overflow: hidden !important; }
+.wmi-adjust { width: auto; max-width: 92vw; }
+.wmi-adj-title { margin: -6px 0 10px; font-size: 13px; }
+.wmi-adj-box {
+  position: relative; overflow: hidden; border-radius: 12px; margin: 0 auto;
+  background: #000; cursor: grab; touch-action: none; user-select: none;
+  outline: 2px solid #f59e0b; outline-offset: 2px;
+}
+.wmi-adj-box:active { cursor: grabbing; }
+.wmi-adj-box img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  pointer-events: none; -webkit-user-drag: none;
+}
+.wmi-adj-zoom { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+.wmi-adj-zoom input { flex: 1; accent-color: #f59e0b; }
+.wmi-adj-val { width: 48px; text-align: right; color: #a1a1aa; font-size: 12px; }
+.wmi-adj-hint { margin-top: 6px; font-size: 12px; text-align: center; }
+.wmi-crop:disabled { opacity: .4; cursor: default; }
+
+.wmi-gif-btn {
+  grid-column: 1 / -1; padding: 10px; border-radius: 10px; border: 1px dashed #f59e0b;
+  background: rgba(245, 158, 11, .08); color: #fbbf24; font-size: 13px; cursor: pointer;
+}
+.wmi-gif-btn:disabled { opacity: .7; cursor: default; }

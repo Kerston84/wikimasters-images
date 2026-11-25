@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>WikiMasters Images — Réglages</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #18181b; color: #eee; max-width: 620px; margin: 40px auto; padding: 0 20px; line-height: 1.5; }
+  h1 { font-size: 22px; }
+  h2 { font-size: 16px; margin-top: 28px; }
+  .box { background: #27272a; border-radius: 12px; padding: 16px 18px; }
+  input { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid #3f3f46; background: #09090b; color: #eee; font-size: 14px; }
+  button { margin-top: 10px; padding: 9px 14px; border-radius: 8px; border: 0; background: #16a34a; color: #fff; font-size: 14px; cursor: pointer; }
+  button.grey { background: #3f3f46; }
+  #status { margin-left: 10px; }
+  ol { padding-left: 20px; }
+  a { color: #fbbf24; }
+  .dim { color: #a1a1aa; font-size: 13px; }
+  .warn { background: #451a03; border: 1px solid #f59e0b; margin-top: 16px; }
+</style>
+</head>
+<body>
+  <h1>🖼 WikiMasters Images — Réglages</h1>
+
+  <div id="perm" class="box warn" style="display:none">
+    <b>⚠ Il faut autoriser l'extension à accéder aux sites.</b>
+    <p class="dim" style="color:#fde68a">Firefox demande cette autorisation à part : sans elle, l'extension ne peut ni modifier WikiMasters ni chercher les images.</p>
+    <button id="perm-btn">Autoriser l'accès aux sites</button>
+  </div>
+
+  <h2>Banques d'images utilisées</h2>
+  <div class="box">
+    <div>✅ Wikipédia (français et anglais) — automatique</div>
+    <div>✅ Wikidata (photos, affiches, logos) — automatique</div>
+    <div>✅ Deezer (photos de chanteurs et rappeurs) — automatique</div>
+    <div>✅ Openverse (images libres) — bouton « Plus d'images »</div>
+    <div id="tmdb-line">⏳ TMDB (affiches de films/séries, photos d'acteurs) — nécessite ta clé ci-dessous</div>
+  </div>
+
+  <h2>Cartes à modifier</h2>
+  <div class="box">
+    <select id="mode" style="width:100%;padding:10px;border-radius:8px;border:1px solid #3f3f46;background:#09090b;color:#eee;font-size:14px">
+      <option value="empty">Seulement les cartes sans image</option>
+      <option value="improve">Sans image + images de mauvaise qualité (conseillé)</option>
+      <option value="all">Toutes les cartes</option>
+    </select>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:12px;cursor:pointer">
+      <input id="badges" type="checkbox" style="width:16px;height:16px;accent-color:#f59e0b">
+      Afficher le bouton 🖼 directement sur les cartes de la collection
+    </label>
+    <p class="dim">Désactivé : pour changer une image, ouvre la carte puis clique sur « 🖼 Changer l'image ».</p>
+    <p class="dim">« Mauvaise qualité » = image trop petite ou bandeau étiré, et films/séries sans affiche.
+    « Toutes les cartes » remplace chaque image dès qu'une autre est trouvée. Les images que tu as choisies à la main sont toujours gardées.</p>
+  </div>
+
+  <h2>Clé TMDB (gratuite)</h2>
+  <div class="box">
+    <input id="key" type="text" placeholder="Colle ta clé TMDB ici" autocomplete="off" spellcheck="false">
+    <button id="save">Enregistrer et tester</button>
+    <button id="clear" class="grey">Effacer</button>
+    <span id="status"></span>
+    <p class="dim">Ta clé reste dans ton navigateur. Elle n'est envoyée qu'à TMDB.</p>
+  </div>
+
+  <h2>Synchro entre tes PC</h2>
+  <div class="box">
+    <div id="sync-status">…</div>
+    <p class="dim">Tes images choisies à la main, tes recadrages et tes réglages suivent ton compte du navigateur
+    (compte Google sur Chrome, compte Firefox sur Firefox), à condition que la synchronisation du navigateur soit activée.
+    Sur Brave, la synchro des extensions n'est pas garantie : utilise la sauvegarde ci-dessous.</p>
+    <button id="export">⬇ Exporter une sauvegarde</button>
+    <button id="import" class="grey">⬆ Importer une sauvegarde</button>
+    <input id="import-file" type="file" accept=".json,application/json" style="display:none">
+    <span id="io-status"></span>
+  </div>
+
+  <h2>Comment obtenir la clé</h2>
+  <ol>
+    <li>Crée un compte gratuit sur <a href="https://www.themoviedb.org/signup" target="_blank">themoviedb.org</a> et valide ton e-mail.</li>
+    <li>Va sur <a href="https://www.themoviedb.org/settings/api" target="_blank">themoviedb.org/settings/api</a>.</li>
+    <li>Clique sur « Créer » / « Request an API key », choisis <b>Developer</b>, accepte les conditions et remplis le petit formulaire (usage personnel).</li>
+    <li>Copie la <b>Clé d'API</b> (API Key) et colle-la au-dessus.</li>
+  </ol>
+
+  <script src="options.js"></script>
+</body>
+</html>
